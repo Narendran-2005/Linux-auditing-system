@@ -1,17 +1,52 @@
-!/bin/bash
+#!/bin/bash
+# kernel.sh - checks kernel hardening parameters against recommended values
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+set -u -o pipefail
 
+# Format: key|recommended value|mode
+#   eq  = must match exactly
+#   min = must be greater than or equal to the value
+checks=(
+    "net.ipv4.ip_forward|0|eq"
+    "net.ipv4.conf.all.accept_redirects|0|eq"
+    "net.ipv4.conf.all.send_redirects|0|eq"
+    "net.ipv4.conf.all.accept_source_route|0|eq"
+    "net.ipv4.conf.all.rp_filter|1|eq"
+    "net.ipv4.tcp_syncookies|1|eq"
+    "net.ipv4.icmp_echo_ignore_broadcasts|1|eq"
+    "kernel.randomize_va_space|2|eq"
+    "kernel.dmesg_restrict|1|eq"
+    "kernel.kptr_restrict|1|min"
+    "kernel.yama.ptrace_scope|1|min"
+    "fs.suid_dumpable|0|eq"
+    "fs.protected_hardlinks|1|eq"
+    "fs.protected_symlinks|1|eq"
+)
 
-yellow="\e[1;33m"
-normal="\e[0m"
+header "Kernel information"
+info "Kernel release: $(uname -r)"
+echo
 
-echo -e "${yellow}kernel information${normal}"
-version=$(uname -r)
-echo "kernalversion:${version}" 
+header "Hardening parameters"
+for entry in "${checks[@]}"; do
+    IFS='|' read -r key want mode <<< "$entry"
 
-sysctl -a | grep '^net.'|head -n 2
+    if ! got=$(sysctl -n "$key" 2>/dev/null); then
+        warn "$key is not available on this kernel"
+        continue
+    fi
 
-sysctl -a | grep '^vm.'|head -n 2
+    if [[ "$mode" == "min" ]]; then
+        (( got >= want )) && good=1 || good=0
+        rec=">= $want"
+    else
+        [[ "$got" == "$want" ]] && good=1 || good=0
+        rec="$want"
+    fi
 
-sysctl -a | grep '^kernel.'|tail -n 2
-
-
+    if (( good )); then
+        pass "$key = $got"
+    else
+        fail "$key = $got (recommended: $rec)"
+    fi
+done

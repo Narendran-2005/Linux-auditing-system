@@ -1,3 +1,8 @@
 #!/bin/bash
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-echo "    $(figlet Linux   auditing)"
+if have figlet; then
+    figlet "Linux Auditing"
+else
+    echo "=== Linux Auditing ==="
+fi

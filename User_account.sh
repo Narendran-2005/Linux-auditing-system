@@ -1,79 +1,57 @@
 #!/bin/bash
+# User_account.sh - user account review
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+set -u -o pipefail
 
-# Define color codes
-yellow="\e[1;33m"
-normal="\e[0m"
+header "Human user accounts (UID 1000-65533)"
+while IFS=: read -r user _ uid _ _ home shell; do
+    if (( uid >= 1000 && uid < 65534 )); then
+        info "$user  uid=$uid  home=$home  shell=$shell"
+    fi
+done < /etc/passwd
 
-# List of default system accounts to exclude
-default_accounts=(
-    "root"
-    "daemon"
-    "bin"
-    "sys"
-    "sync"
-    "games"
-    "man"
-    "lp"
-    "mail"
-    "news"
-    "uucp"
-    "proxy"
-    "www-data"
-    "backup"
-    "list"
-    "irc"
-    "_apt"
-    "nobody"
-    "systemd-network"
-    "mysql"
-    "tss"
-    "strongswan"
-    "systemd-timesync"
-    "redsocks"
-    "rwhod"
-    "iodine"
-    "messagebus"
-    "miredo"
-    "redis"
-    "usbmux"
-    "mosquitto"
-    "tcpdump"
-    "sshd"
-    "_rpc"
-    "dnsmasq"
-    "statd"
-    "avahi"
-    "stunnel4"
-    "Debian-snmp"
-    "_gvm"
-    "speech-dispatcher"
-    "sslh"
-    "postgres"
-    "pulse"
-    "saned"
-    "inetsim"
-    "lightdm"
-    "geoclue"
-    "king-phisher"
-    "polkitd"
-    "nm-openvpn"
-    "rtkit"
-    "colord"
-    "nm-openconnect"
-    "_gophish"
-)
-
-# Convert default_accounts array to a pattern for grep
-exclude_pattern=$(printf "|^%s$" "${default_accounts[@]}")
-exclude_pattern=${exclude_pattern:1}  # Remove leading '|'
-
-# Print header
-echo -e "${yellow}User Accounts${normal}"
-
-# List all users from /etc/passwd, excluding default accounts
-user_accounts=$(cut -d: -f1 /etc/passwd | grep -Ev "$exclude_pattern" | sort)
-
-# Print the list of users
-for user in $user_accounts; do
-    echo "$user"
+echo
+header "Accounts with UID 0"
+uid0=$(awk -F: '$3 == 0 {print $1}' /etc/passwd)
+for u in $uid0; do
+    if [[ "$u" == "root" ]]; then
+        info "root (expected)"
+    else
+        fail "$u has UID 0 (root privileges)"
+    fi
 done
+
+echo
+header "Accounts with a login shell"
+awk -F: '$7 !~ /(nologin|false)$/ {printf "       %s (%s)\n", $1, $7}' /etc/passwd
+
+echo
+header "Accounts with empty passwords"
+if [[ $EUID -eq 0 ]]; then
+    empty=$(awk -F: '$2 == "" {print $1}' /etc/shadow)
+    if [[ -z "$empty" ]]; then
+        pass "No accounts have empty passwords"
+    else
+        fail "Accounts with empty passwords: $(paste -sd' ' - <<< "$empty")"
+    fi
+else
+    warn "Run as root to check /etc/shadow for empty passwords"
+fi
+
+echo
+header "Privileged group members"
+for g in sudo wheel admin; do
+    members=$(getent group "$g" | cut -d: -f4)
+    [[ -n "$members" ]] && info "$g: $members"
+done
+
+echo
+header "Password maximum age"
+max_days=$(awk '/^PASS_MAX_DAYS/ {print $2}' /etc/login.defs 2>/dev/null)
+if [[ -z "$max_days" ]]; then
+    warn "PASS_MAX_DAYS not set in /etc/login.defs"
+elif (( max_days <= 90 )); then
+    pass "PASS_MAX_DAYS is $max_days"
+else
+    fail "PASS_MAX_DAYS is $max_days (recommended: 90 or less)"
+fi

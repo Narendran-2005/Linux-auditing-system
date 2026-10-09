@@ -1,27 +1,36 @@
 #!/bin/bash
-yellow="\e[1;33m"
-normal="\e[0m"
+# hardware.sh - hardware overview
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+set -u -o pipefail
 
-# System Information
-echo -e "${yellow}System Information${normal}"
-sudo dmidecode --type 1
+header "System information"
+if have dmidecode && [[ $EUID -eq 0 ]]; then
+    dmidecode -t 1 2>/dev/null | grep -E '^\s+(Manufacturer|Product Name):' \
+        || warn "dmidecode returned no system information"
+else
+    warn "dmidecode needs root and must be installed - skipping"
+fi
 
-# CPU Information
-echo -e "${yellow}CPU Information${normal}"
-rows=("model name" "flags" "bugs" "cache size" "cpu cores" "stepping" "vendor_id" "microcode")
+echo
+header "CPU information"
+if have lscpu; then
+    lscpu | grep -E '^(Architecture|Model name|Vendor ID|CPU\(s\)|Virtualization|Stepping|L3 cache|Vulnerability)'
+else
+    warn "lscpu not installed (package: util-linux)"
+fi
 
-for row in "${rows[@]}"; do
-   grep -m 1 "$row" /proc/cpuinfo || echo "$row: Not found"
-done
+echo
+header "USB information"
+if have lsusb; then
+    lsusb
+else
+    warn "lsusb not installed (package: usbutils)"
+fi
 
-# USB Information
-echo -e "${yellow}USB Information${normal}"
-usb=$(lsusb)
-echo "$usb"
-
-# Hard Disk Details
-echo -e "${yellow}Hard Disk Details${normal}"
-hard_disk=$(lsblk)
-echo "$hard_disk"
-
-
+echo
+header "Block devices"
+if have lsblk; then
+    lsblk
+else
+    warn "lsblk not installed (package: util-linux)"
+fi

@@ -1,24 +1,29 @@
 #!/bin/bash
-yellow="\e[1;33m"
-normal="\e[0m"
-echo -e "${yellow}Process Monitoring${normal}"
+# process.sh - zombie and I/O-blocked processes
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+set -u -o pipefail
 
-zombie_process=$(ps -A -o pid,stat,comm | awk '{if ($2 ~ /Z|X/) print$1}')
+header "Process monitoring"
 
-if [ -z "$zombie_process" ]; then
-   echo "no zombie process found"
+# Run ps once and reuse the output
+ps_out=$(ps -eo pid,stat,user,comm --no-headers)
+
+printf -v hdr "%-8s %-8s %-12s %s" "PID" "STAT" "USER" "COMMAND"
+
+zombies=$(awk '$2 ~ /^[ZX]/' <<< "$ps_out")
+if [[ -z "$zombies" ]]; then
+    pass "No zombie processes found"
 else
-   echo "found zombie process with PID"
-   echo "$zombie_process"
+    fail "Zombie processes found"
+    echo "$hdr"
+    awk '{printf "%-8s %-8s %-12s %s\n", $1, $2, $3, $4}' <<< "$zombies"
 fi
 
-bottlenecks=$(ps -A -o pid,stat,comm | awk '{if ($2=="D") print$1}')
-
-if [ -z "$bottlenecks" ];then
-   echo "NO process were waiting for I/O requests"
-
+blocked=$(awk '$2 ~ /^D/' <<< "$ps_out")
+if [[ -z "$blocked" ]]; then
+    pass "No processes waiting for I/O"
 else
-        echo "one or more iinformation which were waiting to get I/O request"
-        echo "status 'D' indicate the bottlenecks"
-       echo "$bottlenecks"
+    warn "Processes in uninterruptible I/O wait (state D) may indicate a disk bottleneck"
+    echo "$hdr"
+    awk '{printf "%-8s %-8s %-12s %s\n", $1, $2, $3, $4}' <<< "$blocked"
 fi
